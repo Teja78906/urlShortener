@@ -74,7 +74,7 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RedirectURL(w http.ResponseWriter, r *http.Request) {
-	shortCode := r.PathValue("shortCode")
+	shortCode := strings.TrimPrefix(r.URL.Path, "/redirect/")
 
 	if strings.TrimSpace(shortCode) == "" {
 		http.Error(w, "Short code is required", http.StatusBadRequest)

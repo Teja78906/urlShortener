@@ -22,9 +22,9 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /shorten", h.ShortenURL)
-	mux.HandleFunc("GET /redirect/{shortCode}", h.RedirectURL)
-	mux.HandleFunc("GET /metrics/top-domains", h.GetTopDomains)
+	mux.HandleFunc("/shorten", h.ShortenURL)
+	mux.HandleFunc("/redirect/", h.RedirectURL)
+	mux.HandleFunc("/metrics/top-domains", h.GetTopDomains)
 
 	// Start server
 	log.Println("Server starting on :8080")
