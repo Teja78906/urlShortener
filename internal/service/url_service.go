@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"urlshortener/internal/storage"
@@ -123,13 +124,9 @@ func extractDomain(urlString string) (string, error) {
 }
 
 func sortMetrics(metrics []DomainMetric) {
-	for i := 0; i < len(metrics); i++ {
-		for j := i + 1; j < len(metrics); j++ {
-			if metrics[j].Count > metrics[i].Count {
-				metrics[i], metrics[j] = metrics[j], metrics[i]
-			}
-		}
-	}
+	sort.Slice(metrics, func(i,j int) bool{
+		return metrics[i].Count > metrics[j].Count
+	})
 }
 
 type DomainMetric struct {
