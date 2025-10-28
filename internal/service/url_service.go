@@ -19,6 +19,9 @@ func NewURLService(store storage.Store) *URLService {
 }
 
 func (s *URLService) ShortenURL(originalURL string) (string, error) {
+	if !strings.Contains(originalURL, "://") {
+        originalURL = "http://" + originalURL
+    }
 	// Validate URL
 	if err := validateURL(originalURL); err != nil {
 		return "", err
@@ -86,6 +89,7 @@ func (s *URLService) generateShortCode(originalURL string) string {
 }
 
 func validateURL(urlString string) error {
+	
 	parsedURL, err := url.Parse(urlString)
 	if err != nil {
 		return fmt.Errorf("invalid URL format")
