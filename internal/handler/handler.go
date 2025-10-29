@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
-
+	"sync"
 	"urlshortener/internal/service"
 )
 
@@ -21,6 +21,7 @@ func NewHandler(service *service.URLService) *Handler {
 type ShortenRequest struct {
 	URL string `json:"url"`
 }
+
 type BatchRequest struct {
 	URLs []string `json:"urls"`
 }
@@ -85,46 +86,97 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ShortenMultipleURLs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	fmt.Println("request received on /shortenMultipleURLs.....")
-	var req BatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("Error decoding request: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
-		return
-	}
-	var responses []ShortenResponse
-	var errors []string
-	for _, url := range req.URLs {
-		if strings.TrimSpace(url) == "" {
-			continue
-		}
-		if !strings.Contains(url, "://") {
-			url = "http://" + url
-		}
-		shortCode, err := h.service.ShortenURL(url)
-		if err == nil {
-			responses = append(responses, ShortenResponse{
-				ShortCode: shortCode,
-				URL:       url,
-			})
-		} else {
-			errors = append(errors, fmt.Sprintf("Error shortening URL %s: %v", url, err))
+    if r.Method != http.MethodPost {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    fmt.Println("request received on /shortenMultipleURLs with worker pool.....")
 
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(BatchResponse{
-		Results: responses,
-		Errors:  errors,
-	})
+    var req BatchRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        log.Printf("Error decoding request: %v", err)
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusBadRequest)
+        json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
+        return
+    }
+
+    type result struct {
+        Response ShortenResponse
+        Error    string
+    }
+
+    numWorkers := 1000 // Adjust based on your server capacity
+    jobs := make(chan string, numWorkers)
+    results := make(chan result, len(req.URLs))
+
+    var wg sync.WaitGroup
+
+    // Worker function to process URLs
+    worker := func() {
+        defer wg.Done()
+        for url := range jobs {
+            if !strings.Contains(url, "://") {
+                url = "http://" + url
+            }
+            shortCode, err := h.service.ShortenURL(url)
+            res := result{
+                Response: ShortenResponse{
+                    ShortCode: shortCode,
+                    URL:       url,
+                },
+            }
+            if err != nil {
+                res.Error = fmt.Sprintf("Error shortening URL %s: %v", url, err)
+            }
+            results <- res
+        }
+    }
+
+    // Start workers
+    wg.Add(numWorkers)
+    for i := 0; i < numWorkers; i++ {
+        go worker()
+    }
+
+    // Send jobs
+    go func() {
+        for _, url := range req.URLs {
+            trimmed := strings.TrimSpace(url)
+            if trimmed != "" {
+                jobs <- trimmed
+            }
+        }
+        close(jobs)
+    }()
+
+    // Wait for all workers to finish
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    var responses []ShortenResponse
+    var errors []string
+
+    // Collect results
+    for res := range results {
+        if res.Error != "" {
+            errors = append(errors, res.Error)
+        } else {
+            responses = append(responses, res.Response)
+        }
+    }
+
+    // Respond with batch results and errors
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(BatchResponse{
+        Results: responses,
+        Errors:  errors,
+    })
 }
+
 
 func (h *Handler) RedirectURL(w http.ResponseWriter, r *http.Request) {
 	shortCode := strings.TrimPrefix(r.URL.Path, "/redirect/")
